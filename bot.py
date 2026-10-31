@@ -45,12 +45,12 @@ class QrTooLargeError(Exception):
     pass
 
 
-def api(method, timeout=20, files=None, **params):
+def api(method, http_timeout=20, files=None, **params):
     url = f"{API}/bot{TOKEN}/{method}"
     if files:
-        res = session.post(url, data=params, files=files, timeout=timeout)
+        res = session.post(url, data=params, files=files, timeout=http_timeout)
     else:
-        res = session.post(url, json=params, timeout=timeout)
+        res = session.post(url, json=params, timeout=http_timeout)
     data = res.json()
     if not data.get("ok"):
         raise RuntimeError(f"{method} failed: {data}")
@@ -100,7 +100,7 @@ def send_photo(chat_id, png, caption, reply_to, base_name):
     params = {"chat_id": chat_id, "caption": caption}
     if reply_to:
         params["reply_to_message_id"] = reply_to
-    return api("sendPhoto", timeout=60, files={"photo": (file_name, png, "image/png")}, **params)
+    return api("sendPhoto", http_timeout=60, files={"photo": (file_name, png, "image/png")}, **params)
 
 
 def handle_message(msg):
@@ -187,7 +187,7 @@ def run_polling():
             params = {"timeout": POLL_TIMEOUT}
             if offset is not None:
                 params["offset"] = offset
-            updates = api("getUpdates", timeout=POLL_TIMEOUT + 15, **params)
+            updates = api("getUpdates", http_timeout=POLL_TIMEOUT + 15, **params)
             for update in updates:
                 offset = update["update_id"] + 1
                 handle_update(update)
