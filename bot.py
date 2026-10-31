@@ -89,7 +89,7 @@ def download_file(file_id):
     info = api("getFile", file_id=file_id)
     res = session.get(f"{API}/file/bot{TOKEN}/{info['file_path']}", timeout=30)
     res.raise_for_status()
-    return res.content.decode("utf-8", errors="replace")
+    return res.content
 
 
 def send_text(chat_id, text, reply_to=None):
@@ -111,6 +111,18 @@ def send_photo(chat_id, png, caption, reply_to, base_name):
     return sent
 
 
+def send_document(chat_id, file_id, file_name, data, reply_to):
+    """Re-sends a file by its Bale file_id; falls back to uploading the bytes if that's rejected."""
+    try:
+        return api("sendDocument", chat_id=chat_id, document=file_id, reply_to_message_id=reply_to)
+    except RuntimeError as e:
+        log.warning("sendDocument by file_id failed, uploading instead: %s", e)
+        params = {"chat_id": chat_id}
+        if reply_to:
+            params["reply_to_message_id"] = reply_to
+        return api("sendDocument", http_timeout=60, files={"document": (file_name, data)}, **params)
+
+
 def handle_message(msg):
     chat_id = msg["chat"]["id"]
     reply_to = msg.get("message_id")
@@ -120,12 +132,15 @@ def handle_message(msg):
         if doc:
             if (doc.get("file_size") or 0) > MAX_FILE_BYTES:
                 return send_text(chat_id, "❌ فایل خیلی بزرگه. فایل کانفیگ باید زیر ۲۰ کیلوبایت باشه.", reply_to)
-            content = normalize_config(download_file(doc["file_id"]))
+            data = download_file(doc["file_id"])
+            content = normalize_config(data.decode("utf-8", errors="replace"))
             if not content:
                 return send_text(chat_id, "❌ فایل خالیه.", reply_to)
             name = doc.get("file_name") or "config.conf"
             png = make_qr_png(content)
-            return send_photo(chat_id, png, content, reply_to, name)
+            sent = send_photo(chat_id, png, f"📄 {name}", reply_to, name)
+            photo_id = sent.get("message_id") if isinstance(sent, dict) else None
+            return send_document(chat_id, doc["file_id"], name, data, photo_id or reply_to)
 
         text = (msg.get("text") or msg.get("caption") or "").strip()
         if not text:
