@@ -3,25 +3,36 @@
 - فایل `.conf` وایرگارد بفرستی → QR مخصوص اسکن با اپ WireGuard
 - هر لینک یا متنی (vless://، vmess://، ss://، آدرس سایت، متن فارسی…) → QR
 
-ربات با long polling کار می‌کنه، پس دامنه، SSL یا وبهوک لازم نداره. فقط سرور باید به `tapi.bale.ai` دسترسی داشته باشه.
+ربات دو حالت داره:
+- **Long polling** (پیش‌فرض): دامنه و SSL لازم نداره، فقط سرور باید به `tapi.bale.ai` دسترسی داشته باشه.
+- **Webhook**: یک آدرس عمومی HTTPS لازم داره (مثلاً پشت nginx یا Caddy).
 
 ## نصب روی سرور (یک خط)
 
-توکن ربات رو از `@BotFather` در بله بگیر و روی سرور لینوکس (Ubuntu/Debian/CentOS) بزن:
+روی سرور لینوکس (Ubuntu/Debian/CentOS) بزن:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/samaelleo/bale-config-qr/main/install.sh | sudo bash -s -- YOUR_BOT_TOKEN
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/samaelleo/bale-config-qr/main/install.sh)"
 ```
 
-این دستور کد رو در `/opt/bale-config-qr` نصب می‌کنه، virtualenv می‌سازه، توکن رو در `/etc/bale-config-qr.env` ذخیره می‌کنه و سرویس systemd به اسم `bale-config-qr` رو فعال و اجرا می‌کنه (بعد از ریبوت هم خودش بالا میاد).
+نصب‌کننده (به انگلیسی) این‌ها رو ازت می‌پرسه:
+1. توکن ربات (از `@BotFather` در بله)
+2. حالت دریافت پیام: `1` برای long polling یا `2` برای webhook
+3. اگه webhook رو انتخاب کنی: آدرس عمومی HTTPS، سکرت وبهوک (خالی بذاری تصادفی ساخته می‌شه) و پورت محلی (پیش‌فرض `8080`)
+
+بعد کد رو در `/opt/bale-config-qr` نصب می‌کنه، تنظیمات رو در `/etc/bale-config-qr.env` ذخیره می‌کنه و سرویس systemd به اسم `bale-config-qr` رو فعال و اجرا می‌کنه (بعد از ریبوت هم خودش بالا میاد).
+
+در حالت webhook، بله پیام‌ها رو به `https://<your-domain>/webhook/<secret>` می‌فرسته. reverse proxy رو طوری تنظیم کن که اون آدرس رو به `http://127.0.0.1:8080` بفرسته.
+
+نصب بدون سؤال (مثلاً برای اسکریپت):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/samaelleo/bale-config-qr/main/install.sh | sudo BOT_TOKEN=YOUR_TOKEN WEBHOOK_URL= bash
+```
 
 ## آپدیت
 
-همون دستور بدون توکن (توکن قبلی حفظ می‌شه):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/samaelleo/bale-config-qr/main/install.sh | sudo bash
-```
+همون دستور نصب رو دوباره بزن و به سؤال `Keep it?` جواب `Y` بده تا تنظیمات قبلی حفظ بشه.
 
 ## مدیریت سرویس
 
@@ -37,7 +48,7 @@ sudo journalctl -u bale-config-qr -f
 sudo systemctl restart bale-config-qr
 ```
 
-تغییر توکن: فایل `/etc/bale-config-qr.env` رو ویرایش کن و سرویس رو ری‌استارت کن.
+تغییر توکن یا webhook: فایل `/etc/bale-config-qr.env` رو ویرایش کن و سرویس رو ری‌استارت کن، یا نصب رو دوباره اجرا کن و به `Keep it?` جواب `n` بده.
 
 ## اجرای دستی (بدون systemd)
 

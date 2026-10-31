@@ -1,19 +1,32 @@
 """Bale bot: turns WireGuard .conf files and any text/link into a shareable QR code.
 
-Runs with long polling (no webhook / domain needed). Configure with env var BOT_TOKEN.
+Env vars:
+  BOT_TOKEN       required
+  WEBHOOK_URL     public HTTPS base URL (e.g. https://bot.example.com); empty = long polling
+  WEBHOOK_SECRET  random string used in the webhook path (/webhook/<secret>)
+  WEBHOOK_HOST    listen address for the webhook server (default 0.0.0.0)
+  WEBHOOK_PORT    listen port for the webhook server (default 8080)
 """
 
 import io
+import json
 import logging
 import os
 import re
+import secrets
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
 import segno
 
 API = "https://tapi.bale.ai"
 TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_hex(16)
+WEBHOOK_HOST = os.environ.get("WEBHOOK_HOST", "0.0.0.0").strip()
+WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT") or 8080)
 MAX_FILE_BYTES = 20 * 1024
 POLL_TIMEOUT = 30
 
@@ -122,19 +135,52 @@ def handle_message(msg):
         return send_text(chat_id, "❌ خطایی پیش اومد، دوباره امتحان کن.", reply_to)
 
 
-def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    if not TOKEN:
-        raise SystemExit("BOT_TOKEN env var is not set")
+def handle_update(update):
+    if "message" in update:
+        try:
+            handle_message(update["message"])
+        except Exception:
+            log.exception("failed to reply")
 
+
+def run_webhook():
+    path = f"/webhook/{WEBHOOK_SECRET}"
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            if self.path != path:
+                self.send_error(404)
+                return
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"ok")
+            try:
+                update = json.loads(body)
+            except ValueError:
+                return
+            threading.Thread(target=handle_update, args=(update,), daemon=True).start()
+
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"Bale QR bot is running.")
+
+        def log_message(self, fmt, *args):
+            pass
+
+    api("setWebhook", url=WEBHOOK_URL.rstrip("/") + path)
+    log.info("webhook set, listening on %s:%d", WEBHOOK_HOST, WEBHOOK_PORT)
+    ThreadingHTTPServer((WEBHOOK_HOST, WEBHOOK_PORT), Handler).serve_forever()
+
+
+def run_polling():
     try:
         api("deleteWebhook")  # getUpdates doesn't work while a webhook is set
     except Exception as e:
         log.warning("deleteWebhook: %s", e)
 
-    me = api("getMe")
-    log.info("running as @%s", me.get("username"))
-
+    log.info("polling for updates")
     offset = None
     while True:
         try:
@@ -144,17 +190,27 @@ def main():
             updates = api("getUpdates", timeout=POLL_TIMEOUT + 15, **params)
             for update in updates:
                 offset = update["update_id"] + 1
-                if "message" in update:
-                    try:
-                        handle_message(update["message"])
-                    except Exception:
-                        log.exception("failed to reply")
+                handle_update(update)
         except requests.RequestException as e:
             log.warning("network error: %s", e)
             time.sleep(3)
         except Exception:
             log.exception("polling error")
             time.sleep(5)
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if not TOKEN:
+        raise SystemExit("BOT_TOKEN env var is not set")
+
+    me = api("getMe")
+    log.info("running as @%s", me.get("username"))
+
+    if WEBHOOK_URL:
+        run_webhook()
+    else:
+        run_polling()
 
 
 if __name__ == "__main__":
