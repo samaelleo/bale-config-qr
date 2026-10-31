@@ -28,6 +28,7 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "").strip() or secrets.token_h
 WEBHOOK_HOST = os.environ.get("WEBHOOK_HOST", "0.0.0.0").strip()
 WEBHOOK_PORT = int(os.environ.get("WEBHOOK_PORT") or 8080)
 MAX_FILE_BYTES = 20 * 1024
+CAPTION_LIMIT = 1024
 POLL_TIMEOUT = 30
 
 HELP = (
@@ -96,11 +97,18 @@ def send_text(chat_id, text, reply_to=None):
 
 
 def send_photo(chat_id, png, caption, reply_to, base_name):
+    """Sends the QR with caption; captions over Bale's limit go in a follow-up text message instead."""
     file_name = re.sub(r"\.[^.]*$", "", base_name) + "-qr.png"
-    params = {"chat_id": chat_id, "caption": caption}
+    fits = len(caption) <= CAPTION_LIMIT
+    params = {"chat_id": chat_id}
+    if fits:
+        params["caption"] = caption
     if reply_to:
         params["reply_to_message_id"] = reply_to
-    return api("sendPhoto", http_timeout=60, files={"photo": (file_name, png, "image/png")}, **params)
+    sent = api("sendPhoto", http_timeout=60, files={"photo": (file_name, png, "image/png")}, **params)
+    if not fits:
+        send_text(chat_id, caption, sent.get("message_id") if isinstance(sent, dict) else None)
+    return sent
 
 
 def handle_message(msg):
@@ -117,7 +125,7 @@ def handle_message(msg):
                 return send_text(chat_id, "❌ فایل خالیه.", reply_to)
             name = doc.get("file_name") or "config.conf"
             png = make_qr_png(content)
-            return send_photo(chat_id, png, f"📄 {name}\nاین QR رو با اپ WireGuard اسکن کن.", reply_to, name)
+            return send_photo(chat_id, png, content, reply_to, name)
 
         text = (msg.get("text") or msg.get("caption") or "").strip()
         if not text:
@@ -125,9 +133,10 @@ def handle_message(msg):
         if text in ("/start", "/help"):
             return send_text(chat_id, HELP)
 
-        png = make_qr_png(normalize_config(text) if looks_like_wireguard(text) else text)
-        preview = text[:200] + "…" if len(text) > 200 else text
-        return send_photo(chat_id, png, f"✅ QR ساخته شد:\n{preview}", reply_to, "qr")
+        if looks_like_wireguard(text):
+            text = normalize_config(text)
+        png = make_qr_png(text)
+        return send_photo(chat_id, png, text, reply_to, "qr")
     except QrTooLargeError:
         return send_text(chat_id, "❌ متن خیلی طولانیه و توی یک QR جا نمی‌شه (حداکثر حدود ۲۹۰۰ بایت).", reply_to)
     except Exception:
