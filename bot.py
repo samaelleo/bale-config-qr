@@ -42,6 +42,14 @@ log = logging.getLogger("bale-qr")
 session = requests.Session()
 
 
+class RedactingFormatter(logging.Formatter):
+    """Masks the bot token in every log line, including tracebacks (request URLs contain it)."""
+
+    def format(self, record):
+        text = super().format(record)
+        return text.replace(TOKEN, "***") if TOKEN else text
+
+
 class QrTooLargeError(Exception):
     pass
 
@@ -224,7 +232,9 @@ def run_polling():
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(RedactingFormatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
     if not TOKEN:
         raise SystemExit("BOT_TOKEN env var is not set")
 
