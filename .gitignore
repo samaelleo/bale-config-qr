@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+dist/
+worker/test/out/
+.dev.vars
+.venv/
+__pycache__/
+test_out/
+.env

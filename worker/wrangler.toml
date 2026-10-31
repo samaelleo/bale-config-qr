@@ -1,0 +1,7 @@
+name = "bale-config-qr"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Secrets (set with `npx wrangler secret put <NAME>`):
+#   BOT_TOKEN       - توکن ربات بله از @BotFather
+#   WEBHOOK_SECRET  - یک رشته تصادفی برای محافظت از آدرس وبهوک
